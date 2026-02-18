@@ -10,7 +10,7 @@ interface MasonryGridProps {
   showSpecialization?: boolean;
 }
 
-const shuffleArray = <T,>(array: T[]): T[] => {
+const shuffleArray = <T extends Record<string, unknown>>(array: T[]): T[] => {
   const shuffled = [...array];
   for (let i = shuffled.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
@@ -163,8 +163,8 @@ const MasonryGrid: React.FC<MasonryGridProps> = ({ projects, showSpecialization 
     const shuffled = shuffleArray(projects);
     return shuffled.map((project) => ({
       ...project,
-      displayMediaType: pickProjectMedia(project).type,
-      displayMediaUrl: pickProjectMedia(project).url,
+      displayMediaType: pickProjectMedia(project as unknown as Project).type,
+      displayMediaUrl: pickProjectMedia(project as unknown as Project).url,
       weight: Math.random() > 0.5 ? 2.0 : 1.2
     }));
   }, [projects]); 

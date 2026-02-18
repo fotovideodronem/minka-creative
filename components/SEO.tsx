@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import React, { useEffect } from 'react';
 
 interface SEOProps {
   title?: string;
@@ -75,10 +75,10 @@ const SEO: React.FC<SEOProps> = ({
     // Add structured data for better SEO
     const addStructuredData = () => {
       const scriptId = 'structured-data-org';
-      let scriptElement = document.getElementById(scriptId);
+      let scriptElement = document.getElementById(scriptId) as HTMLScriptElement | null;
       
       if (!scriptElement) {
-        scriptElement = document.createElement('script');
+        scriptElement = document.createElement('script') as HTMLScriptElement;
         scriptElement.id = scriptId;
         scriptElement.type = 'application/ld+json';
         document.head.appendChild(scriptElement);
