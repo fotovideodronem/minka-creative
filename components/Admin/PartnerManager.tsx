@@ -41,7 +41,7 @@ const PartnerManager: React.FC = () => {
   };
 
   const deletePartner = async (id: string) => {
-    await dataStore.collection('partners').delete(id);
+    await dataStore.collection('partners').delete(String(id));
     await loadData();
   };
 
@@ -54,7 +54,7 @@ const PartnerManager: React.FC = () => {
   const deleteBulk = async () => {
     if (!confirm('Smazat vybrané partnery?')) return;
     for (const id of Array.from(selectedIds)) {
-      await dataStore.collection('partners').delete(id);
+      await dataStore.collection('partners').delete(String(id));
     }
     setSelectedIds(new Set());
     await loadData();
