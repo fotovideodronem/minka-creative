@@ -118,6 +118,16 @@ DROP POLICY IF EXISTS "Enable public read access for media_meta" ON media_meta;
 DROP POLICY IF EXISTS "Enable insert for inquiries" ON inquiries;
 DROP POLICY IF EXISTS "Enable update for inquiries" ON inquiries;
 DROP POLICY IF EXISTS "Enable delete for inquiries" ON inquiries;
+DROP POLICY IF EXISTS "Enable public insert for blog" ON blog;
+DROP POLICY IF EXISTS "Enable public update for blog" ON blog;
+DROP POLICY IF EXISTS "Enable public insert for projects" ON projects;
+DROP POLICY IF EXISTS "Enable public update for projects" ON projects;
+DROP POLICY IF EXISTS "Enable public insert for web_settings" ON web_settings;
+DROP POLICY IF EXISTS "Enable public update for web_settings" ON web_settings;
+DROP POLICY IF EXISTS "public select" ON media_meta;
+DROP POLICY IF EXISTS "public insert" ON media_meta;
+DROP POLICY IF EXISTS "public update" ON media_meta;
+DROP POLICY IF EXISTS "authenticated users insert" ON media_meta;
 
 -- Create policies for public read access
 CREATE POLICY "Enable public read access for blog" ON blog FOR SELECT USING (true);
@@ -126,6 +136,16 @@ CREATE POLICY "Enable public read access for web_settings" ON web_settings FOR S
 CREATE POLICY "Enable public read access for reviews" ON reviews FOR SELECT USING (true);
 CREATE POLICY "Enable public read access for partners" ON partners FOR SELECT USING (true);
 CREATE POLICY "Enable public read access for media_meta" ON media_meta FOR SELECT USING (true);
+
+-- Allow public insert and update for tables that use upsert operations
+CREATE POLICY "Enable public insert for blog" ON blog FOR INSERT WITH CHECK (true);
+CREATE POLICY "Enable public update for blog" ON blog FOR UPDATE USING (true);
+
+CREATE POLICY "Enable public insert for projects" ON projects FOR INSERT WITH CHECK (true);
+CREATE POLICY "Enable public update for projects" ON projects FOR UPDATE USING (true);
+
+CREATE POLICY "Enable public insert for web_settings" ON web_settings FOR INSERT WITH CHECK (true);
+CREATE POLICY "Enable public update for web_settings" ON web_settings FOR UPDATE USING (true);
 
 -- Allow anyone to insert inquiries  
 CREATE POLICY "Enable insert for inquiries" ON inquiries FOR INSERT WITH CHECK (true);
@@ -144,6 +164,12 @@ ON media_meta
 FOR INSERT
 TO public
 WITH CHECK (true);
+
+CREATE POLICY "public update"
+ON media_meta
+FOR UPDATE
+TO public
+USING (true);
 
 CREATE POLICY "authenticated users insert"
 ON media_meta
