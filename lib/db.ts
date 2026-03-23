@@ -1,6 +1,7 @@
 import { db, storage } from '../src/firebase';
 import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, query, where, getDoc } from 'firebase/firestore';
 import { ref, uploadBytes, getBytes, deleteObject, getDownloadURL } from 'firebase/storage';
+import { supabase } from '../src/supabaseClient';
 
 const DEFAULT_CACHE_TTL_MS = 30 * 60 * 1000;
 
@@ -19,13 +20,12 @@ const readCache = (cacheKey: string, ttlMs: number, force?: boolean): any[] | nu
   return null;
 };
 
-export const checkFirestoreConnection = async (): Promise<boolean> => {
+export const checkSupabaseConnection = async (): Promise<boolean> => {
   try {
-    const testRef = doc(db, 'test', 'connection');
-    await getDoc(testRef);
-    return true;
+    const { data, error } = await supabase.from('blog').select('id').limit(1);
+    return !error;
   } catch (err) {
-    console.warn('Firebase connection error:', err);
+    console.warn('Supabase connection error:', err);
     return false;
   }
 };

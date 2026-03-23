@@ -1,0 +1,14 @@
+[
+  {
+    "AllowedOrigins": [
+      "https://comforting-banoffee-31d878.netlify.app",
+      "https://minka-weddings.cz",
+      "http://localhost:5173",
+      "http://localhost:3000"
+    ],
+    "AllowedMethods": ["GET", "PUT", "POST", "DELETE", "HEAD"],
+    "AllowedHeaders": ["*"],
+    "ExposeHeaders": ["ETag"],
+    "MaxAgeSeconds": 3600
+  }
+]

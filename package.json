@@ -9,6 +9,8 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1014.0",
+    "@netlify/functions": "^5.1.5",
     "@supabase/supabase-js": "^2.95.1",
     "firebase": "^12.9.0",
     "framer-motion": "^12.26.2",

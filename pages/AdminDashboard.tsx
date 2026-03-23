@@ -33,7 +33,7 @@ import InquiryManager from '../components/Admin/InquiryManager';
 import WebSettingsManager from '../components/Admin/WebSettingsManager';
 import SystemManager from '../components/Admin/SystemManager';
 import { SPECIALIZATIONS } from '../constants';
-import { checkFirestoreConnection, getSupabaseLimitStatus } from '../lib/db';
+import { checkSupabaseConnection, getSupabaseLimitStatus } from '../lib/db';
 
 const AdminDashboard: React.FC = () => {
   const navigate = useNavigate();
@@ -53,7 +53,7 @@ const AdminDashboard: React.FC = () => {
       const savedStats = localStorage.getItem('jakub_minka_stats');
       if (savedStats) setStats(JSON.parse(savedStats));
       
-      const connection = await checkFirestoreConnection();
+      const connection = await checkSupabaseConnection();
       setIsOnline(connection);
       
       setSupabaseLimitReached(getSupabaseLimitStatus());

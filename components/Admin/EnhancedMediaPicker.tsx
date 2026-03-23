@@ -1,18 +1,18 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { FileItem } from '../../types';
-import { 
-  X, Upload, Folder, Image as LucideImage, Video as LucideVideo, 
-  FileText, HardDrive, ChevronRight, Plus, AlertCircle 
+import {
+  X, Upload, Folder, Image as LucideImage, Video as LucideVideo,
+  FileText, HardDrive, ChevronRight, AlertCircle
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { mediaDB, optimizeImage } from '../../lib/db';
-import { supabase } from '../../src/supabaseClient';
+import { mediaDB } from '../../lib/db';
+import { uploadToR2 } from '../../lib/r2Client'; // ← R2 místo Supabase Storage
 
 interface EnhancedMediaPickerProps {
   isOpen: boolean;
   onClose: () => void;
-  onSelect: (item: FileItem) => void; // Single selection callback
-  onMultiSelect?: (items: FileItem[]) => void; // Multiple selection callback
+  onSelect: (item: FileItem) => void;
+  onMultiSelect?: (items: FileItem[]) => void;
   allowMultiple?: boolean;
   allowUpload?: boolean;
   showFolders?: boolean;
@@ -39,9 +39,10 @@ const EnhancedMediaPicker: React.FC<EnhancedMediaPickerProps> = ({
   const [currentFolderId, setCurrentFolderId] = useState<string | null>(null);
   const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
   const [uploadQueue, setUploadQueue] = useState<UploadStatus[]>([]);
-  const [isUploadingRef, setIsUploading] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const quality = parseFloat(localStorage.getItem('jakub_minka_compression_quality') || '0.8');
+
+  const quality = parseFloat(localStorage.getItem('jakub_minka_compression_quality') || '0.82');
 
   useEffect(() => {
     if (isOpen) {
@@ -52,18 +53,15 @@ const EnhancedMediaPicker: React.FC<EnhancedMediaPickerProps> = ({
   const loadItems = async () => {
     try {
       const dbItems = await mediaDB.getAll({ force: true });
-      setItems(dbItems.map(i => ({...i, parentId: i.parentId || null})));
+      setItems(dbItems.map(i => ({ ...i, parentId: i.parentId || null })));
     } catch (err) {
       console.error('Error loading items:', err);
     }
   };
 
   const currentItems = items.filter(i => {
-    if (currentFolderId) {
-      return i.parentId === currentFolderId;
-    } else {
-      return !i.parentId;
-    }
+    if (currentFolderId) return i.parentId === currentFolderId;
+    return !i.parentId;
   });
 
   const folders = currentItems.filter(i => i.type === 'folder');
@@ -78,84 +76,72 @@ const EnhancedMediaPicker: React.FC<EnhancedMediaPickerProps> = ({
     }
   };
 
-  const handleGalleryUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files || files.length === 0) return;
+  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const fileList = e.target.files;
+    if (!fileList || fileList.length === 0) return;
 
     setIsUploading(true);
-    const fileList = Array.from(files) as File[];
+    const files = Array.from(fileList) as File[];
 
-    for (const file of fileList) {
-      const fileName = file.name.split('.')[0];
-      const existingFile = items.find(i => i.name === fileName && i.type !== 'folder');
+    for (const file of files) {
+      const baseName = file.name.replace(/\.[^.]+$/, '');
 
-      if (existingFile) {
+      // Kontrola duplicit
+      const exists = items.find(i => i.name === baseName && i.type !== 'folder' && i.parentId === currentFolderId);
+      if (exists) {
         const uploadId = Math.random().toString(36).substr(2, 9);
         setUploadQueue(prev => [...prev, {
           id: uploadId,
           fileName: file.name,
           progress: 0,
           status: 'error',
-          error: `Soubor "${file.name}" již existuje`
+          error: `Soubor "${file.name}" již existuje v této složce`,
         }]);
         continue;
       }
 
       const uploadId = Math.random().toString(36).substr(2, 9);
-      setUploadQueue(prev => [
-        {
-          id: uploadId,
-          fileName: file.name,
-          progress: 0,
-          status: file.type.startsWith('image/') ? 'optimizing' : 'uploading'
-        },
-        ...prev
-      ]);
+      setUploadQueue(prev => [{
+        id: uploadId,
+        fileName: file.name,
+        progress: 0,
+        status: file.type.startsWith('image/') ? 'optimizing' : 'uploading',
+      }, ...prev]);
 
       try {
-        let fileToUpload: Blob | File = file;
-        const storagePath = uploadId + '_' + file.name.replace(/\s+/g, '_').toLowerCase();
+        // Upload do R2 (WebP konverze je uvnitř uploadToR2)
+        const { url, key } = await uploadToR2(file, quality, (progress) => {
+          setUploadQueue(prev => prev.map(u =>
+            u.id === uploadId
+              ? { ...u, progress, status: progress < 50 ? 'optimizing' : 'uploading' }
+              : u
+          ));
+        });
 
-        // Image optimization
-        if (file.type.startsWith('image/')) {
-          try {
-            fileToUpload = await optimizeImage(file, quality);
-          } catch (err) {
-            console.warn('Image optimization failed:', err);
-          }
-        }
-
-        // Upload to Supabase
-        const { error: uploadError } = await supabase.storage
-          .from('media')
-          .upload(storagePath, fileToUpload, { upsert: false });
-
-        if (uploadError) throw uploadError;
-
-        setUploadQueue(prev => prev.map(u => u.id === uploadId ? { ...u, status: 'uploading', progress: 50 } : u));
-
-        // Get public URL
-        const publicResp = supabase.storage
-          .from('media')
-          .getPublicUrl(storagePath);
-        const publicUrl = publicResp.data?.publicUrl || '';
-
+        // Ulož metadata do Supabase (jen URL, ne soubor)
         const newItem: FileItem = {
           id: uploadId,
-          name: file.name.split('.')[0],
+          name: baseName,
           type: file.type.startsWith('image') ? 'image' : file.type.startsWith('video') ? 'video' : 'other',
-          size: `${(fileToUpload.size / (1024 * 1024)).toFixed(2)} MB`,
-          url: publicUrl,
+          size: `${(file.size / (1024 * 1024)).toFixed(2)} MB`,
+          url,
           parentId: currentFolderId,
-          specializationId: storagePath,
-          updatedAt: new Date().toISOString()
+          specializationId: key, // R2 key pro případné smazání
+          updatedAt: new Date().toISOString(),
         };
 
         await mediaDB.save(newItem);
-        setUploadQueue(prev => prev.map(u => u.id === uploadId ? { ...u, status: 'completed', progress: 100 } : u));
+
+        setUploadQueue(prev => prev.map(u =>
+          u.id === uploadId ? { ...u, status: 'completed', progress: 100 } : u
+        ));
+
         await loadItems();
       } catch (err: any) {
-        setUploadQueue(prev => prev.map(u => u.id === uploadId ? { ...u, status: 'error', error: err.message || 'Upload failed' } : u));
+        console.error('Upload error:', err);
+        setUploadQueue(prev => prev.map(u =>
+          u.id === uploadId ? { ...u, status: 'error', error: err.message || 'Upload selhal' } : u
+        ));
       }
     }
 
@@ -170,11 +156,8 @@ const EnhancedMediaPicker: React.FC<EnhancedMediaPickerProps> = ({
       if (allowMultiple) {
         setSelectedItems(prev => {
           const newSet = new Set(prev);
-          if (newSet.has(item.id)) {
-            newSet.delete(item.id);
-          } else {
-            newSet.add(item.id);
-          }
+          if (newSet.has(item.id)) newSet.delete(item.id);
+          else newSet.add(item.id);
           return newSet;
         });
       } else {
@@ -214,8 +197,9 @@ const EnhancedMediaPicker: React.FC<EnhancedMediaPickerProps> = ({
           <div>
             <h3 className="text-xl font-black uppercase tracking-widest">Knihovna médií</h3>
             <p className="text-[10px] text-gray-500 uppercase mt-1">
-              {currentFolderId ? '📁 V otevřené složce' : '🏠 Kořenová složka'} 
+              {currentFolderId ? '📁 V otevřené složce' : '🏠 Kořenová složka'}
               {allowMultiple && ` • Vybrány: ${selectedItems.size}`}
+              <span className="ml-2 text-green-600">☁️ Cloudflare R2</span>
             </p>
           </div>
           <button onClick={onClose} className="p-2 hover:bg-gray-200 rounded">
@@ -236,18 +220,21 @@ const EnhancedMediaPicker: React.FC<EnhancedMediaPickerProps> = ({
 
         {/* Upload Section */}
         {allowUpload && (
-          <div className="bg-blue-50 border-b px-6 py-4">
+          <div className="bg-blue-50 border-b px-6 py-4 flex items-center gap-4">
             <button
               onClick={() => fileInputRef.current?.click()}
-              disabled={isUploadingRef}
+              disabled={isUploading}
               className="flex items-center gap-2 px-4 py-2 bg-[#007BFF] text-white rounded hover:bg-blue-700 disabled:opacity-50 text-[10px] font-black uppercase"
             >
               <Upload size={14} /> Nahrát soubory
             </button>
+            <span className="text-[9px] text-gray-500 uppercase">
+              Obrázky jsou automaticky převedeny na WebP a zmenšeny
+            </span>
             <input
               type="file"
               ref={fileInputRef}
-              onChange={handleGalleryUpload}
+              onChange={handleUpload}
               multiple
               accept="image/*,video/*"
               className="hidden"
@@ -258,22 +245,33 @@ const EnhancedMediaPicker: React.FC<EnhancedMediaPickerProps> = ({
         {/* Upload Queue */}
         <AnimatePresence>
           {uploadQueue.length > 0 && (
-            <div className="bg-gray-50 border-b px-6 py-4 space-y-2 max-h-24 overflow-y-auto">
+            <div className="bg-gray-50 border-b px-6 py-4 space-y-2 max-h-28 overflow-y-auto">
               {uploadQueue.map(upload => (
                 <div key={upload.id} className="space-y-1">
                   <div className="flex items-center justify-between text-[9px]">
-                    <span className="font-bold uppercase truncate">{upload.fileName}</span>
+                    <span className="font-bold uppercase truncate max-w-[200px]">{upload.fileName}</span>
                     <span className={`font-black px-2 py-0.5 rounded ${
                       upload.status === 'completed' ? 'bg-green-100 text-green-700' :
                       upload.status === 'error' ? 'bg-red-100 text-red-700' :
+                      upload.status === 'optimizing' ? 'bg-yellow-100 text-yellow-700' :
                       'bg-blue-100 text-blue-700'
                     }`}>
-                      {upload.status === 'completed' ? '✓' : upload.status === 'error' ? '✗' : `${upload.progress}%`}
+                      {upload.status === 'completed' ? '✓ Hotovo' :
+                       upload.status === 'error' ? '✗ Chyba' :
+                       upload.status === 'optimizing' ? '⚡ WebP...' :
+                       `☁️ ${upload.progress}%`}
                     </span>
                   </div>
-                  {upload.error && <p className="text-[8px] text-red-600">{upload.error}</p>}
+                  {upload.error && (
+                    <p className="text-[8px] text-red-600 flex items-center gap-1">
+                      <AlertCircle size={8} /> {upload.error}
+                    </p>
+                  )}
                   <div className="w-full h-1 bg-gray-200 rounded overflow-hidden">
-                    <div className="h-full bg-[#007BFF] transition-all" style={{ width: `${upload.progress}%` }}></div>
+                    <div
+                      className={`h-full transition-all ${upload.status === 'error' ? 'bg-red-400' : 'bg-[#007BFF]'}`}
+                      style={{ width: `${upload.progress}%` }}
+                    />
                   </div>
                 </div>
               ))}
@@ -295,7 +293,7 @@ const EnhancedMediaPicker: React.FC<EnhancedMediaPickerProps> = ({
             </div>
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
-              {/* Folders First */}
+              {/* Složky */}
               {folders.map(folder => (
                 <button
                   key={folder.id}
@@ -303,14 +301,14 @@ const EnhancedMediaPicker: React.FC<EnhancedMediaPickerProps> = ({
                   className="group relative aspect-square border-2 border-gray-200 rounded hover:border-[#007BFF] transition-all overflow-hidden bg-gray-50 flex flex-col items-center justify-center gap-2"
                 >
                   <Folder size={24} className="text-blue-500" />
-                  <span className="text-[8px] font-black uppercase text-center px-1 truncate">{folder.name}</span>
+                  <span className="text-[8px] font-black uppercase text-center px-1 truncate w-full">{folder.name}</span>
                   <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all">
                     <ChevronRight size={20} className="text-white" />
                   </div>
                 </button>
               ))}
 
-              {/* Then Files */}
+              {/* Soubory */}
               {files.map(file => (
                 <button
                   key={file.id}
@@ -322,7 +320,11 @@ const EnhancedMediaPicker: React.FC<EnhancedMediaPickerProps> = ({
                   }`}
                 >
                   {file.type === 'image' && file.url ? (
-                    <img src={file.url} alt={file.name} className="w-full h-full object-cover grayscale group-hover:grayscale-0 transition-all" />
+                    <img
+                      src={file.url}
+                      alt={file.name}
+                      className="w-full h-full object-cover grayscale group-hover:grayscale-0 transition-all"
+                    />
                   ) : (
                     <div className="flex flex-col items-center gap-1 text-gray-400">
                       {getFileIcon(file.type)}
@@ -331,11 +333,11 @@ const EnhancedMediaPicker: React.FC<EnhancedMediaPickerProps> = ({
                   )}
                   <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all">
                     <span className="text-white text-[10px] font-black uppercase">
-                      {allowMultiple && selectedItems.has(file.id) ? '✓' : 'Vybrat'}
+                      {allowMultiple && selectedItems.has(file.id) ? '✓ Vybráno' : 'Vybrat'}
                     </span>
                   </div>
                   {allowMultiple && selectedItems.has(file.id) && (
-                    <div className="absolute top-2 right-2 bg-[#007BFF] text-white rounded-full p-1">
+                    <div className="absolute top-2 right-2 bg-[#007BFF] text-white rounded-full w-5 h-5 flex items-center justify-center text-[10px]">
                       ✓
                     </div>
                   )}
@@ -345,7 +347,7 @@ const EnhancedMediaPicker: React.FC<EnhancedMediaPickerProps> = ({
           )}
         </div>
 
-        {/* Footer */}
+        {/* Footer pro multi-select */}
         {allowMultiple && (
           <div className="bg-gray-50 border-t px-6 py-4 flex justify-end gap-3">
             <button
