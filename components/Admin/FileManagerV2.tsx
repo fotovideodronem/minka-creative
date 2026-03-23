@@ -63,14 +63,9 @@ const FileManagerV2: React.FC = () => {
     console.log('📂 [LOAD] Loading files from database...');
     const dbItems = await mediaDB.getAll({ force: true });
     console.log('📂 [LOAD] Loaded', dbItems.length, 'items from DB');
-    console.log('📂 [LOAD] Sample items:', dbItems.slice(0, 3).map(i => ({ name: i.name, parent_id: i.parent_id, type: typeof i.parent_id })));
-    const mappedItems = dbItems.map(i => ({
-      ...i, 
-      parentId: i.parent_id || null,
-      specializationId: i.specialization_id || '',
-      updatedAt: i.updated_at || new Date().toISOString()
-    }));
-    console.log('📂 [LOAD] After mapping:', mappedItems.slice(0, 3).map(i => ({ name: i.name, parentId: i.parentId, type: typeof i.parentId })));
+    console.log('📂 [LOAD] Sample items:', dbItems.slice(0, 3).map(i => ({ name: i.name, parentId: i.parentId, type: typeof i.parentId })));
+    const mappedItems = dbItems.map(i => ({...i, parentId: i.parentId || null}));
+    console.log('📂 [LOAD] After || null mapping:', mappedItems.slice(0, 3).map(i => ({ name: i.name, parentId: i.parentId, type: typeof i.parentId })));
     setItems(mappedItems);
   };
 
