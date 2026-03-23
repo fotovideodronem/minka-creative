@@ -138,33 +138,37 @@ class DataStore {
   }
   doc(docId: string) {
     const cacheKey = `jakub_minka_settings_${docId}`;
-    const docRef = doc(db, 'settings', docId);
+    const tableName = 'web_settings';
 
     return {
       get: async () => {
         try {
-          const docSnap = await getDoc(docRef);
-          if (docSnap.exists()) {
-            const data = { id: docSnap.id, ...docSnap.data() };
+          const { data, error } = await supabase.from(tableName).select('*').eq('id', docId).single();
+          if (!error && data) {
             localStorage.setItem(cacheKey, JSON.stringify(data));
             return data;
           }
           const local = localStorage.getItem(cacheKey);
           return local ? JSON.parse(local) : {};
         } catch (err) {
-          console.warn('Error getting Firestore doc:', err);
+          console.warn('Error getting Supabase doc:', err);
           const local = localStorage.getItem(cacheKey);
           return local ? JSON.parse(local) : {};
         }
       },
       set: async (data: any) => {
         try {
-          await updateDoc(docRef, data);
+          const payload = { id: docId, ...data };
+          const { error } = await supabase.from(tableName).upsert(payload, { onConflict: 'id' });
+          if (error) throw error;
+          localStorage.setItem(cacheKey, JSON.stringify(payload));
+          window.dispatchEvent(new Event('storage'));
+          return payload;
+        } catch (err) {
+          console.error('Error setting Supabase doc:', err);
           localStorage.setItem(cacheKey, JSON.stringify({ id: docId, ...data }));
           window.dispatchEvent(new Event('storage'));
-        } catch (err) {
-          console.error('Error setting Firestore doc:', err);
-          localStorage.setItem(cacheKey, JSON.stringify({ id: docId, ...data }));
+          return { id: docId, ...data };
         }
       }
     };
@@ -175,7 +179,7 @@ export const dataStore = new DataStore();
 
 export class MediaDB {
   private cacheKey = 'jakub_minka_media_cache';
-  private firebaseCollection = collection(db, 'media');
+  private tableName = 'media_meta';
 
   async getAll(options?: { force?: boolean; ttlMs?: number }): Promise<any[]> {
     const ttlMs = options?.ttlMs ?? DEFAULT_CACHE_TTL_MS;
@@ -183,10 +187,11 @@ export class MediaDB {
     if (cached) return cached;
 
     try {
-      const snapshot = await getDocs(this.firebaseCollection);
-      const items = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      writeCache(this.cacheKey, items);
-      return items;
+      const { data, error } = await supabase.from(this.tableName).select('*').order('updated_at', { ascending: false });
+      if (error) throw error;
+      const result = data || [];
+      writeCache(this.cacheKey, result);
+      return result;
     } catch (err) {
       console.warn('Error fetching media:', err);
       const local = localStorage.getItem(this.cacheKey);
@@ -195,14 +200,10 @@ export class MediaDB {
   }
 
   async save(item: any): Promise<void> {
+    if (!item.id) item.id = crypto.randomUUID?.() || Date.now().toString();
     try {
-      if (!item.id) item.id = crypto.randomUUID?.() || Date.now().toString();
-      if (item.id) {
-        const docRef = doc(this.firebaseCollection, item.id);
-        await updateDoc(docRef, item);
-      } else {
-        await addDoc(this.firebaseCollection, item);
-      }
+      const { error } = await supabase.from(this.tableName).upsert({ ...item, id: item.id }, { onConflict: 'id' });
+      if (error) throw error;
       const current = JSON.parse(localStorage.getItem(this.cacheKey) || '[]');
       writeCache(this.cacheKey, [item, ...current.filter((i: any) => i.id !== item.id)]);
       window.dispatchEvent(new Event('storage'));
@@ -210,13 +211,14 @@ export class MediaDB {
       console.error('Error saving media:', err);
       const current = JSON.parse(localStorage.getItem(this.cacheKey) || '[]');
       writeCache(this.cacheKey, [item, ...current.filter((i: any) => i.id !== item.id)]);
+      window.dispatchEvent(new Event('storage'));
     }
   }
 
   async delete(id: string): Promise<void> {
     try {
-      const docRef = doc(this.firebaseCollection, id);
-      await deleteDoc(docRef);
+      const { error } = await supabase.from(this.tableName).delete().eq('id', id);
+      if (error) throw error;
       const current = JSON.parse(localStorage.getItem(this.cacheKey) || '[]');
       writeCache(this.cacheKey, current.filter((i: any) => i.id !== id));
       window.dispatchEvent(new Event('storage'));
@@ -224,23 +226,25 @@ export class MediaDB {
       console.error('Error deleting media:', err);
       const current = JSON.parse(localStorage.getItem(this.cacheKey) || '[]');
       writeCache(this.cacheKey, current.filter((i: any) => i.id !== id));
+      window.dispatchEvent(new Event('storage'));
     }
   }
 
   async update(id: string, data: any): Promise<any> {
     try {
-      const docRef = doc(this.firebaseCollection, id);
-      await updateDoc(docRef, data);
+      const { data: updatedRows, error } = await supabase.from(this.tableName).update(data).eq('id', id).select();
+      if (error) throw error;
       const current = JSON.parse(localStorage.getItem(this.cacheKey) || '[]');
       const updated = current.map((i: any) => i.id === id ? { ...i, ...data } : i);
       writeCache(this.cacheKey, updated);
       window.dispatchEvent(new Event('storage'));
-      return updated.find((i: any) => i.id === id);
+      return updatedRows?.[0] || updated.find((i: any) => i.id === id);
     } catch (err) {
       console.error('Error updating media:', err);
       const current = JSON.parse(localStorage.getItem(this.cacheKey) || '[]');
       const updated = current.map((i: any) => i.id === id ? { ...i, ...data } : i);
       writeCache(this.cacheKey, updated);
+      window.dispatchEvent(new Event('storage'));
       return updated.find((i: any) => i.id === id);
     }
   }
@@ -250,22 +254,60 @@ export const mediaDB = new MediaDB();
 
 export class BlogDB {
   private cacheKey = 'jakub_minka_blog_cache';
+  private tableName = 'blog';
+
   async getAll(options?: { force?: boolean; ttlMs?: number }): Promise<any[]> {
     const ttlMs = options?.ttlMs ?? DEFAULT_CACHE_TTL_MS;
     const cached = readCache(this.cacheKey, ttlMs, options?.force);
-    return cached || [];
+    if (cached) return cached;
+
+    try {
+      const { data, error } = await supabase.from(this.tableName).select('*').order('created_at', { ascending: false });
+      if (error) throw error;
+      const result = data || [];
+      writeCache(this.cacheKey, result);
+      return result;
+    } catch (err) {
+      console.warn('Error fetching blog:', err);
+      const local = localStorage.getItem(this.cacheKey);
+      return local ? JSON.parse(local) : [];
+    }
   }
+
   async save(item: any): Promise<any> {
-    const current = JSON.parse(localStorage.getItem(this.cacheKey) || '[]');
-    const updated = [item, ...current.filter((i: any) => i.id !== item.id)];
-    writeCache(this.cacheKey, updated);
-    window.dispatchEvent(new Event('storage'));
-    return item;
+    if (!item.id) item.id = crypto.randomUUID?.() || Date.now().toString();
+    try {
+      const { data, error } = await supabase.from(this.tableName).upsert({ ...item, id: item.id }, { onConflict: 'id', returning: 'representation' });
+      if (error) throw error;
+      const saved = data?.[0] || item;
+      const current = JSON.parse(localStorage.getItem(this.cacheKey) || '[]');
+      const updated = [saved, ...current.filter((i: any) => i.id !== item.id)];
+      writeCache(this.cacheKey, updated);
+      window.dispatchEvent(new Event('storage'));
+      return saved;
+    } catch (err) {
+      console.error('Error saving blog:', err);
+      const current = JSON.parse(localStorage.getItem(this.cacheKey) || '[]');
+      const updated = [item, ...current.filter((i: any) => i.id !== item.id)];
+      writeCache(this.cacheKey, updated);
+      window.dispatchEvent(new Event('storage'));
+      return item;
+    }
   }
+
   async delete(id: string): Promise<void> {
-    const current = JSON.parse(localStorage.getItem(this.cacheKey) || '[]');
-    writeCache(this.cacheKey, current.filter((i: any) => i.id !== id));
-    window.dispatchEvent(new Event('storage'));
+    try {
+      const { error } = await supabase.from(this.tableName).delete().eq('id', id);
+      if (error) throw error;
+      const current = JSON.parse(localStorage.getItem(this.cacheKey) || '[]');
+      writeCache(this.cacheKey, current.filter((i: any) => i.id !== id));
+      window.dispatchEvent(new Event('storage'));
+    } catch (err) {
+      console.error('Error deleting blog:', err);
+      const current = JSON.parse(localStorage.getItem(this.cacheKey) || '[]');
+      writeCache(this.cacheKey, current.filter((i: any) => i.id !== id));
+      window.dispatchEvent(new Event('storage'));
+    }
   }
 }
 
@@ -273,25 +315,74 @@ export const blogDB = new BlogDB();
 
 export class ProjectDB {
   private cacheKey = 'jakub_minka_projects_cache';
+  private tableName = 'projects';
+
   async getAll(options?: { force?: boolean; ttlMs?: number }): Promise<any[]> {
     const ttlMs = options?.ttlMs ?? DEFAULT_CACHE_TTL_MS;
     const cached = readCache(this.cacheKey, ttlMs, options?.force);
-    return cached || [];
+    if (cached) return cached;
+
+    try {
+      const { data, error } = await supabase.from(this.tableName).select('*').order('created_at', { ascending: false });
+      if (error) throw error;
+      const result = data || [];
+      writeCache(this.cacheKey, result);
+      return result;
+    } catch (err) {
+      console.warn('Error fetching projects:', err);
+      const local = localStorage.getItem(this.cacheKey);
+      return local ? JSON.parse(local) : [];
+    }
   }
+
   async save(item: any): Promise<void> {
-    const current = JSON.parse(localStorage.getItem(this.cacheKey) || '[]');
-    writeCache(this.cacheKey, [item, ...current.filter((i: any) => i.id !== item.id)]);
-    window.dispatchEvent(new Event('storage'));
+    if (!item.id) item.id = crypto.randomUUID?.() || Date.now().toString();
+    try {
+      const { error } = await supabase.from(this.tableName).upsert({ ...item, id: item.id }, { onConflict: 'id' });
+      if (error) throw error;
+      const current = JSON.parse(localStorage.getItem(this.cacheKey) || '[]');
+      writeCache(this.cacheKey, [item, ...current.filter((i: any) => i.id !== item.id)]);
+      window.dispatchEvent(new Event('storage'));
+    } catch (err) {
+      console.error('Error saving project:', err);
+      const current = JSON.parse(localStorage.getItem(this.cacheKey) || '[]');
+      writeCache(this.cacheKey, [item, ...current.filter((i: any) => i.id !== item.id)]);
+      window.dispatchEvent(new Event('storage'));
+    }
   }
+
   async delete(id: string): Promise<void> {
-    const current = JSON.parse(localStorage.getItem(this.cacheKey) || '[]');
-    writeCache(this.cacheKey, current.filter((i: any) => i.id !== id));
-    window.dispatchEvent(new Event('storage'));
+    try {
+      const { error } = await supabase.from(this.tableName).delete().eq('id', id);
+      if (error) throw error;
+      const current = JSON.parse(localStorage.getItem(this.cacheKey) || '[]');
+      writeCache(this.cacheKey, current.filter((i: any) => i.id !== id));
+      window.dispatchEvent(new Event('storage'));
+    } catch (err) {
+      console.error('Error deleting project:', err);
+      const current = JSON.parse(localStorage.getItem(this.cacheKey) || '[]');
+      writeCache(this.cacheKey, current.filter((i: any) => i.id !== id));
+      window.dispatchEvent(new Event('storage'));
+    }
   }
-  async update(id: string, data: any): Promise<void> {
-    const current = JSON.parse(localStorage.getItem(this.cacheKey) || '[]');
-    writeCache(this.cacheKey, current.map((i: any) => i.id === id ? { ...i, ...data } : i));
-    window.dispatchEvent(new Event('storage'));
+
+  async update(id: string, data: any): Promise<any> {
+    try {
+      const { data: updatedRows, error } = await supabase.from(this.tableName).update(data).eq('id', id).select();
+      if (error) throw error;
+      const current = JSON.parse(localStorage.getItem(this.cacheKey) || '[]');
+      const updated = current.map((i: any) => i.id === id ? { ...i, ...data } : i);
+      writeCache(this.cacheKey, updated);
+      window.dispatchEvent(new Event('storage'));
+      return updatedRows?.[0] || updated.find((i: any) => i.id === id);
+    } catch (err) {
+      console.error('Error updating project:', err);
+      const current = JSON.parse(localStorage.getItem(this.cacheKey) || '[]');
+      const updated = current.map((i: any) => i.id === id ? { ...i, ...data } : i);
+      writeCache(this.cacheKey, updated);
+      window.dispatchEvent(new Event('storage'));
+      return updated.find((i: any) => i.id === id);
+    }
   }
 }
 
