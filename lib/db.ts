@@ -1,5 +1,5 @@
 import { db, storage } from '../src/firebase';
-import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, query, where, getDoc } from 'firebase/firestore';
+import { collection, getDocs, setDoc, addDoc, updateDoc, deleteDoc, doc, query, where, getDoc } from 'firebase/firestore';
 import { ref, uploadBytes, getBytes, deleteObject, getDownloadURL } from 'firebase/storage';
 import { supabase } from '../src/supabaseClient';
 
