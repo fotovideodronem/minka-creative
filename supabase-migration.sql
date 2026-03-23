@@ -131,3 +131,22 @@ CREATE POLICY "Enable public read access for media_meta" ON media_meta FOR SELEC
 CREATE POLICY "Enable insert for inquiries" ON inquiries FOR INSERT WITH CHECK (true);
 CREATE POLICY "Enable update for inquiries" ON inquiries FOR UPDATE USING (true);
 CREATE POLICY "Enable delete for inquiries" ON inquiries FOR DELETE USING (true);
+
+-- Media meta policies
+CREATE POLICY "public select" 
+ON media_meta 
+FOR SELECT 
+TO public 
+USING (true);
+
+CREATE POLICY "public insert"
+ON media_meta
+FOR INSERT
+TO public
+WITH CHECK (true);
+
+CREATE POLICY "authenticated users insert"
+ON media_meta
+FOR INSERT
+TO authenticated
+WITH CHECK (auth.role() = 'authenticated');
