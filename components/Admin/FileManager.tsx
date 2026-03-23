@@ -98,7 +98,7 @@ const FileManager: React.FC = () => {
           id: fileId, name: file.name,
           type: file.type.startsWith('image') ? 'image' : file.type.startsWith('video') ? 'video' : 'other',
           size: `${(fileToUpload.size / (1024 * 1024)).toFixed(2)} MB`,
-          updatedAt: new Date().toISOString(), url: publicUrl, parentId: currentFolderId, specializationId: storagePath
+          updated_at: new Date().toISOString(), url: publicUrl, parent_id: currentFolderId, specialization_id: storagePath
         };
         console.log('Saving metadata to mediaDB:', newItem);
         try {
@@ -139,7 +139,7 @@ const FileManager: React.FC = () => {
             <Upload size={14} /> NAHRÁT SOUBORY
           </button>
           <input type="file" multiple ref={fileInputRef} className="hidden" onChange={handleUpload} />
-          <button onClick={() => {const n=prompt('Název složky:'); if(n) mediaDB.save({id:'f-'+Math.random().toString(36).substr(2,9), name:n, type:'folder', parentId:currentFolderId})}} className="border-2 border-[#007BFF] bg-white text-[#007BFF] px-6 py-3 text-[10px] font-black uppercase tracking-widest flex items-center gap-2">
+          <button onClick={() => {const n=prompt('Název složky:'); if(n) mediaDB.save({id:'f-'+Math.random().toString(36).substr(2,9), name:n, type:'folder', parent_id:currentFolderId})}} className="border-2 border-[#007BFF] bg-white text-[#007BFF] px-6 py-3 text-[10px] font-black uppercase tracking-widest flex items-center gap-2">
             <FolderPlus size={14} /> NOVÁ SLOŽKA
           </button>
         </div>

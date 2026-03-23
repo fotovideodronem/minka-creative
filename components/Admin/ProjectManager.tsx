@@ -117,7 +117,7 @@ const ProjectManager: React.FC = () => {
         const newItem: FileItem = { 
           id: fileId, name: file.name, 
           type: file.type.startsWith('image') ? 'image' : 'video', 
-          url: publicUrl, parentId: pickerFolderId, updatedAt: new Date().toISOString() 
+          url: publicUrl, parent_id: pickerFolderId, updated_at: new Date().toISOString() 
         };
         await mediaDB.save(newItem);
         setAllItems(prev => [...prev, newItem]);

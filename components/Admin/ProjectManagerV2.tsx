@@ -166,9 +166,9 @@ const ProjectManagerV2: React.FC = () => {
           type: 'image',
           size: `${(file.size / (1024 * 1024)).toFixed(2)} MB`,
           url,
-          parentId: null,
-          specializationId: '',
-          updatedAt: new Date().toISOString()
+          parent_id: null,
+          specialization_id: '',
+          updated_at: new Date().toISOString()
         };
         await mediaDB.save(mediaItem);
         console.log('✅ Gallery image added to media gallery:', mediaItem.name);

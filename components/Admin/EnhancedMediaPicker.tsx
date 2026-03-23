@@ -125,9 +125,9 @@ const EnhancedMediaPicker: React.FC<EnhancedMediaPickerProps> = ({
           type: file.type.startsWith('image') ? 'image' : file.type.startsWith('video') ? 'video' : 'other',
           size: `${(file.size / (1024 * 1024)).toFixed(2)} MB`,
           url,
-          parentId: currentFolderId,
-          specializationId: key, // R2 key pro případné smazání
-          updatedAt: new Date().toISOString(),
+          parent_id: currentFolderId,
+          specialization_id: key, // R2 key pro případné smazání
+          updated_at: new Date().toISOString(),
         };
 
         await mediaDB.save(newItem);

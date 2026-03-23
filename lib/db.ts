@@ -190,8 +190,17 @@ export class MediaDB {
       const { data, error } = await supabase.from(this.tableName).select('*').order('updated_at', { ascending: false });
       if (error) throw error;
       const result = data || [];
-      writeCache(this.cacheKey, result);
-      return result;
+      
+      // Convert snake_case to camelCase for frontend
+      const convertedResult = result.map(item => ({
+        ...item,
+        parentId: item.parent_id,
+        specializationId: item.specialization_id,
+        updatedAt: item.updated_at
+      }));
+      
+      writeCache(this.cacheKey, convertedResult);
+      return convertedResult;
     } catch (err) {
       console.warn('Error fetching media:', err);
       const local = localStorage.getItem(this.cacheKey);
@@ -201,8 +210,22 @@ export class MediaDB {
 
   async save(item: any): Promise<void> {
     if (!item.id) item.id = crypto.randomUUID?.() || Date.now().toString();
+    
+    // Convert camelCase to snake_case for database
+    const dbItem = {
+      ...item,
+      parent_id: item.parentId ?? item.parent_id,
+      specialization_id: item.specializationId ?? item.specialization_id,
+      updated_at: item.updatedAt ?? item.updated_at
+    };
+    
+    // Remove camelCase properties
+    delete dbItem.parentId;
+    delete dbItem.specializationId;
+    delete dbItem.updatedAt;
+    
     try {
-      const { error } = await supabase.from(this.tableName).upsert({ ...item, id: item.id }, { onConflict: 'id' });
+      const { error } = await supabase.from(this.tableName).upsert({ ...dbItem, id: dbItem.id }, { onConflict: 'id' });
       if (error) throw error;
       const current = JSON.parse(localStorage.getItem(this.cacheKey) || '[]');
       writeCache(this.cacheKey, [item, ...current.filter((i: any) => i.id !== item.id)]);

@@ -160,9 +160,9 @@ Maximální velikost je ${VIDEO_MAX_MB} MB. Doporučuji export do MP4 (H.264) a 
           type: file.type.startsWith('image') ? 'image' : file.type.startsWith('video') ? 'video' : 'other',
           size: `${(fileToUpload.size / (1024 * 1024)).toFixed(2)} MB`,
           url: publicUrl,
-          parentId: null,
-          specializationId: storagePath,
-          updatedAt: new Date().toISOString()
+          parent_id: null,
+          specialization_id: storagePath,
+          updated_at: new Date().toISOString()
         };
 
         await mediaDB.save(newItem);
