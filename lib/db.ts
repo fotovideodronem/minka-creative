@@ -61,7 +61,6 @@ export const optimizeImage = async (file: File, quality: number = 0.8, maxWidth:
 class DataStore {
   collection(tableName: string) {
     const cacheKey = `jakub_minka_cache_${tableName}`;
-    const firebaseCollection = collection(db, tableName);
 
     return {
       getAll: async (options?: { force?: boolean; ttlMs?: number }): Promise<any[]> => {
@@ -70,64 +69,69 @@ class DataStore {
         if (cached) return cached;
 
         try {
-          const snapshot = await getDocs(firebaseCollection);
-          const items = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-          writeCache(cacheKey, items);
-          return items;
+          const { data, error } = await supabase.from(tableName).select('*').order('created_at', { ascending: false });
+          if (error) throw error;
+          const result = data || [];
+          writeCache(cacheKey, result);
+          return result;
         } catch (err) {
-          console.warn('Error fetching from Firestore:', err);
+          console.warn(`Error fetching from Supabase ${tableName}:`, err);
           const local = localStorage.getItem(cacheKey);
           return local ? JSON.parse(local) : [];
         }
       },
-      save: async (item: any): Promise<void> => {
+      save: async (item: any): Promise<any> => {
+        if (!item.id) item.id = crypto.randomUUID?.() || Date.now().toString();
         try {
-          if (item.id) {
-            const docRef = doc(firebaseCollection, item.id);
-            await updateDoc(docRef, item);
-          } else {
-            item.id = crypto.randomUUID?.() || Date.now().toString();
-            await addDoc(firebaseCollection, item);
-          }
+          const { data, error } = await supabase.from(tableName).upsert({ ...item, id: item.id }, { onConflict: 'id', returning: 'representation' });
+          if (error) throw error;
+          const saved = data?.[0] || item;
+          const local = JSON.parse(localStorage.getItem(cacheKey) || '[]');
+          const updated = [saved, ...local.filter((i: any) => i.id !== item.id)];
+          writeCache(cacheKey, updated);
+          window.dispatchEvent(new Event('storage'));
+          return saved;
+        } catch (err) {
+          console.error(`Error saving to Supabase ${tableName}:`, err);
           const local = JSON.parse(localStorage.getItem(cacheKey) || '[]');
           const updated = [item, ...local.filter((i: any) => i.id !== item.id)];
           writeCache(cacheKey, updated);
           window.dispatchEvent(new Event('storage'));
-        } catch (err) {
-          console.error('Error saving to Firestore:', err);
-          const local = JSON.parse(localStorage.getItem(cacheKey) || '[]');
-          const updated = [item, ...local.filter((i: any) => i.id !== item.id)];
-          writeCache(cacheKey, updated);
+          return item;
         }
       },
       delete: async (id: string): Promise<void> => {
         try {
-          const docRef = doc(firebaseCollection, id);
-          await deleteDoc(docRef);
+          const { error } = await supabase.from(tableName).delete().eq('id', id);
+          if (error) throw error;
           const local = JSON.parse(localStorage.getItem(cacheKey) || '[]');
           const updated = local.filter((i: any) => i.id !== id);
           writeCache(cacheKey, updated);
           window.dispatchEvent(new Event('storage'));
         } catch (err) {
-          console.error('Error deleting from Firestore:', err);
+          console.error(`Error deleting from Supabase ${tableName}:`, err);
           const local = JSON.parse(localStorage.getItem(cacheKey) || '[]');
           const updated = local.filter((i: any) => i.id !== id);
           writeCache(cacheKey, updated);
+          window.dispatchEvent(new Event('storage'));
         }
       },
-      update: async (id: string, data: any): Promise<void> => {
+      update: async (id: string, data: any): Promise<any> => {
         try {
-          const docRef = doc(firebaseCollection, id);
-          await updateDoc(docRef, data);
+          const { data: updatedRows, error } = await supabase.from(tableName).update(data).eq('id', id).select();
+          if (error) throw error;
           const local = JSON.parse(localStorage.getItem(cacheKey) || '[]');
           const updated = local.map((i: any) => i.id === id ? { ...i, ...data } : i);
           writeCache(cacheKey, updated);
           window.dispatchEvent(new Event('storage'));
+          return updatedRows?.[0] || updated.find((i: any) => i.id === id);
         } catch (err) {
-          console.error('Error updating Firestore:', err);
+          console.error(`Error updating Supabase ${tableName}:`, err);
           const local = JSON.parse(localStorage.getItem(cacheKey) || '[]');
           const updated = local.map((i: any) => i.id === id ? { ...i, ...data } : i);
           writeCache(cacheKey, updated);
+          window.dispatchEvent(new Event('storage'));
+          return updated.find((i: any) => i.id === id);
         }
       }
     };
